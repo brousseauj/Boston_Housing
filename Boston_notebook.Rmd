@@ -1,0 +1,247 @@
+---
+title: "Boston Housing"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+  word_document: default
+---
+# What is Linear Regression?
+
+Linear regression is a technique used to model the relationship between the dependent X variable and the independent Y variable. In the case here, we will be trying to build a model that describes the relationship of housing features to predict housing price.
+
+
+To quickly go over the math. 
+
+A linear model can be described as: 
+
+$y = a*bx$
+
+Where:
+
+y = average value of response variable 
+
+a = y intercept 
+
+b = coefficient 
+
+x = value of explanatory variable
+
+If we had multiple predictors we can adjust this formula to be:
+
+$y = a*b_1x+b_2x+b_nx$ 
+
+Where $n$ is the number of explanatory variables.
+
+I'll go more into these formulas as we interpret the final model we build. 
+
+
+## Reading in the data. 
+
+```{r, echo=T}
+library(MASS)
+df = Boston
+summary(df)
+```
+Below is a definition of all the column labels. 
+
+
+```{r,eval=FALSE}
+crim
+per capita crime rate by town.
+
+zn
+proportion of residential land zoned for lots over 25,000 sq.ft.
+
+indus
+proportion of non-retail business acres per town.
+
+chas
+Charles River dummy variable (= 1 if tract bounds river; 0 otherwise).
+
+nox
+nitrogen oxides concentration (parts per 10 million).
+
+rm
+average number of rooms per dwelling.
+
+age
+proportion of owner-occupied units built prior to 1940.
+
+dis
+weighted mean of distances to five Boston employment centres.
+
+rad
+index of accessibility to radial highways.
+
+tax
+full-value property-tax rate per \$10,000.
+
+ptratio
+pupil-teacher ratio by town.
+
+black
+1000(Bk - 0.63)^2 where Bk is the proportion of blacks by town.
+
+lstat
+lower status of the population (percent).
+
+medv
+median value of owner-occupied homes in \$1000s.
+```
+## Exploring the Data
+
+```{r}
+library(corrplot)
+df_cor = cor(df)
+corrplot.mixed(df_cor)
+```
+
+We can see some features are highly correlated with each other, this is called multicollinearity. This could be a problem later on when we try to build models because small changes in either predictor will cause large changes in the models. 
+
+```{r}
+library(ggplot2)
+qplot(x=medv,data=df,geom='histogram')
+```
+
+This plot is a histogram of the `medv` column which is the median price of the house. We can the data is just ever-so-slightly skewed to the right, meaning it is not normally distributed around the mean, but distributed slightly below the mean. One of the assumptions of linear regression is that the data is normally distributed around the mean. So, to fix this, we can apply a log transformation to the price column.
+
+```{r,warning=F}
+qplot(x=log(medv),data=df,geom='histogram')
+```
+We can see that by doing the log transform of the median value, we now have a slight left skew in the data, but we have reduced the large outliers to the far right of the plot. Since the difference doesn't seem to be that large, we can use the log transform since it looks 'more normal' then the original data. 
+
+## Building our first model
+
+We have to start somewhere. We know that we want to model the data around median value so let's start by comparing all the variables to it. 
+
+```{r}
+model1 = lm(log(medv)~., data= df)
+summary(model1)
+```
+```{r}
+par(mfrow=c(2,2))
+plot(model1)
+```
+There are a few things I want to dive into here. First, let's start with the long list of numbers above. The first column is titled 'Estimate'. If we look back at our equation for multiple linear regression:
+
+$y = a*b_1x+b_2x+b_nx$ 
+
+The first number in the Estimate list is titled 'Intercept', this would correspond to the 'a' value in the equation. Each subsequent number would correspond to a new 'b' value. Where 'x' would be a variable we were trying to predict. To interpret this estimate column, we say, it is the change in response based on a 1-unit change in the explanatory variable, holding all other variables constant. For example, let's look at crime: `crim        -0.0102715`
+This says, holding all other variables constant, we can except a decrease in price of $log(-0.0102715). Generally speaking, more crime equals less a house will cost. The next value would be the statistical t-value which can be used to calculate the p-value which will tell you if the variable is significant. We only want those variables that will add something to the model, not those that are insignificant. 
+
+One way to pick the best model is to use AIC. Taken from Wikipedia, 
+
+"The Akaike information criterion (AIC) is a measure of the relative quality of statistical models for a given set of data. Given a collection of models for the data, AIC estimates the quality of each model, relative to each of the other models. Hence, AIC provides a means for model selection" 
+
+You can see why this method is very useful, it does all the hard work for you. 
+
+```{r}
+library(MASS)
+step = stepAIC(model1,direction = 'both')
+step$anova
+step_model= lm(log(medv) ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + 
+                 black + lstat,data=df)
+
+summary(step_model)
+```
+
+We can see from the first command, that it's going through our initial model and removing one variable and recalculating the AIC, which is a rough measure of model goodness. Looking at the second the command, it shows us what our first model was and what the final model. So if we look at the summary of the new linear model with the predictors given to us from the stepAIC, we can see that now we have removed all predictors that are not significant and are adjusted R-square value has gone up, slightly. 
+
+But there is still some work we can do. 
+
+## Diagonstics to our new model
+
+The car package has a nice function called variable inflation factor. This is a measure of multicollinearity, or 
+
+"a phenomenon in which two or more predictor variables in a multiple regression model are highly correlated, meaning that one can be linearly predicted from the others with a substantial degree of accuracy." - Wikipedia
+
+This can be a major problem and we need to make sure that we are accounting for it. 
+
+```{r}
+library(car)
+vif(step_model)
+```
+
+There is some discussion over the cutoff point of when to exclude the predictor for multicollinearity. A good rule of thumb is if VIF > 5, you should exclude it from your analysis. Looking above, we have 2 variables we should remove, rad and tax. 
+
+
+```{r}
+model2 = lm(log(medv)~crim+zn+chas+nox+dis+ptratio+black+lstat,data=df)
+summary(model2)
+plot(model2)
+
+```
+
+So we can see this new model isn't modeling the data as well as our old model, but all of the predictors are still significant and we have removed the issue of multicollinearity. 
+
+```{r}
+#multicollinearity?
+vif(model2)
+```
+
+So what could be the problem? Let's start by going over some diagnostic tests we can do. 
+
+First, the mean of the residuals should be equal to 0. 
+
+```{r}
+# Assumption - mean of the residuals is = 0 
+mean(model2$residuals)
+plot(model2$residuals)
+abline(h=0,col='red')
+```
+
+Next, we should look at some outliers. 
+
+```{r}
+library(car)
+outlierTest(model2)
+```
+ 
+The outliers test shows us that we have 2 points that should be removed. 
+
+```{r}
+df2=df[-c(413,372),,drop=T]# drop the points
+row.names(df2)=1:nrow(df2)
+
+model3 = lm(log(medv) ~ crim + zn + chas + nox + rm + dis +
+              ptratio + black + lstat,data=df2)
+par(mfrow=c(2,2))
+plot(model3)
+summary(model3)
+```
+
+With the removed outliers, we can see our model has increased in it's Adjusted R-Square value! But we lost a predictor as being significant. Let's try the stepAIC function on this new model with the new data.
+
+```{r}
+model3_step=stepAIC(model3,df2,direction = 'both')
+model3_step$anov
+
+summary(model3_step)
+par(mfrow=c(2,2))
+plot(model3_step)
+```
+
+We can see that there is no difference in the models between model3 and step_model3 so we can continue with either. The R-squared values are equal and there is no difference in variables. We can test for outliers in this new model now. 
+
+```{r}
+library(car)
+outlierTest(model3)
+```
+So we have 2 new outlier points in model 3, so we can remove them and re-run the model with the new data.
+
+```{r}
+df3=df2[-c(371,400,373),,drop=T]
+row.names(df3)=1:nrow(df3)
+model4 = lm(log(medv) ~ crim + zn + chas + nox + rm + dis +
+                 tax + ptratio + black + lstat,data=df3)
+summary(model4)
+par(mfrow=c(2,2))
+plot(model4)
+```
+
+We can see that we again have increased the power of our model but lost significance on another variable. We can run the stepAIC and see if we can remove it. Spoiler alert, we can. So to save you from the boredom of more code. I'll just tell you we can remove them. We now that we have a model that we can use. 
+
+With this final model, we have a Adjusted R-square value of 0.7929 which means that the model can account for ~80% of the data, which isn't that bad! We have a pretty good model for assessing the median value of a house. 
+
+Next: Diagnostic tests for confirming the goodness of our model. These tests range from outliers, to non-normality, to multi-collinearity. A single test from above can not make or break a model but rather give you insight to the model as a whole. No model will be perfect because data is often messy and requires massaging, so what we want is a model that can best explain the data. 
